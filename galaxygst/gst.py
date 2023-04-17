@@ -1,8 +1,10 @@
 from __future__ import annotations
-
-import struct
 from io import BytesIO
+
+import sys
 import time
+import os.path
+import struct
 import dolphin_memory_engine
 
 __all__ = []
@@ -43,6 +45,13 @@ GHOST_FILE_FORMATS = [
     "{0}Luigi.gst"
 ]
 
+GHOST_TYPE_NAMES = [
+    "GhostAttackGhost",
+    "PichanRacer",
+    "GhostPlayer (Mario)",
+    "GhostPlayer (Luigi)"
+]
+
 ADDR_GST_RECORDER_INFO_PTR = 0x80003FF8
 OFFSET_UPDATE_FRAME = 0x00
 OFFSET_RECORDER_MODE = 0x04
@@ -50,60 +59,28 @@ OFFSET_STAGE_NAME_PTR = 0x08
 OFFSET_GST_DATA_INDEX = 0x0C
 OFFSET_GST_DATA_TYPE = 0x10
 OFFSET_GST_DATA_STRUCT = 0x14
-OFFSET_GST_DATA_STRUCT_POSITION = OFFSET_GST_DATA_STRUCT + 0x00
-OFFSET_GST_DATA_STRUCT_ROTATION = OFFSET_GST_DATA_STRUCT + 0x0C
-OFFSET_GST_DATA_STRUCT_SCALE = OFFSET_GST_DATA_STRUCT + 0x18
-OFFSET_GST_DATA_STRUCT_VELOCITY = OFFSET_GST_DATA_STRUCT + 0x24
-OFFSET_GST_DATA_STRUCT_ACTION_NAME_PTR = OFFSET_GST_DATA_STRUCT + 0x30
-OFFSET_GST_DATA_STRUCT_ACTION_HASH = OFFSET_GST_DATA_STRUCT + 0x34
-OFFSET_GST_DATA_STRUCT_BCK_FRAME = OFFSET_GST_DATA_STRUCT + 0x38
-OFFSET_GST_DATA_STRUCT_TRACK_WEIGHTS = OFFSET_GST_DATA_STRUCT + 0x3C
-OFFSET_GST_DATA_STRUCT_BCK_RATE = OFFSET_GST_DATA_STRUCT + 0x4C
-OFFSET_GST_DATA_STRUCT_PACKET_FLAGS = OFFSET_GST_DATA_STRUCT + 0x50
+GST_DATA_STRUCT_SIZE = 0x2E
 
 
-class Vec3f:
-    """Represents a 3D vector using floating point coordinates."""
+class Vec3:
+    """Represents a simple 3D vector."""
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0):
         self.x = x
         self.y = y
         self.z = z
 
-    def set(self, other: Vec3f):
+    def set(self, other: Vec3):
         self.x = other.x
         self.y = other.y
         self.z = other.z
 
     def __eq__(self, other):
-        if type(other) != Vec3f:
+        if type(other) != Vec3:
             return False
         return self.x == other.x and self.y == other.y and self.z == other.z
 
     def __ne__(self, other):
-        if type(other) != Vec3f:
-            return True
-        return self.x != other.x or self.y != other.y or self.z != other.z
-
-
-class Vec3i:
-    """Represents a 3D vector using integer coordinates."""
-    def __init__(self, x: int = 0, y: int = 0, z: int = 0):
-        self.x = x
-        self.y = y
-        self.z = z
-
-    def set(self, other: Vec3i):
-        self.x = other.x
-        self.y = other.y
-        self.z = other.z
-
-    def __eq__(self, other):
-        if type(other) != Vec3i:
-            return False
-        return self.x == other.x and self.y == other.y and self.z == other.z
-
-    def __ne__(self, other):
-        if type(other) != Vec3i:
+        if type(other) != Vec3:
             return True
         return self.x != other.x or self.y != other.y or self.z != other.z
 
@@ -139,29 +116,13 @@ def dolphin_read_f32(ptr: int) -> int:
     return dolphin_memory_engine.read_float(ptr)
 
 
-@validate_ptr("Vec*")
-def dolphin_read_vec(ptr: int, dest: Vec3f = None) -> Vec3f:
-    """
-    Reads a 3D vector at the specified address in Dolphin's emulated game memory and returns it.
-
-    :param ptr: the pointer to the 3D vector.
-    :param dest: the destination vector.
-    :return: the destination vector.
-    """
-    if dest is None:
-        dest = Vec3f()
-    dest.x = dolphin_memory_engine.read_float(ptr)
-    dest.y = dolphin_memory_engine.read_float(ptr + 4)
-    dest.z = dolphin_memory_engine.read_float(ptr + 8)
-    return dest
-
-
 @validate_ptr("char*")
-def dolphin_read_cstring(ptr: int) -> str:
+def dolphin_read_cstring(ptr: int, encoding: str = "ascii") -> str:
     """
     Reads a C-string at the specified address in Dolphin's emulated game memory and returns it.
 
     :param ptr: the pointer to the C-string.
+    :param encoding: the string's encoding.
     :return: the value read.
     """
     chars = bytearray()
@@ -172,7 +133,7 @@ def dolphin_read_cstring(ptr: int) -> str:
             break
         else:
             chars.append(char)
-    return chars.decode("ascii")
+    return chars.decode(encoding)
 
 
 @validate_ptr("GstRecorderInfo*")
@@ -227,120 +188,46 @@ def dolphin_read_ghost_data_type(gst_recorder_info_ptr: int) -> int:
 
 
 @validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_position(gst_recorder_info_ptr: int, dest: Vec3f = None) -> Vec3f:
-    """
-    Reads the position of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
+def dolphin_read_ghost_data_struct(gst_recorder_info_ptr: int, dest: RawGhostData):
+    raw = dolphin_memory_engine.read_bytes(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT, GST_DATA_STRUCT_SIZE)
 
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :param dest: the destination vector.
-    :return: the destination vector.
-    """
-    return dolphin_read_vec(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_POSITION, dest)
+    pos_f_x, pos_f_y, pos_f_z = struct.unpack_from(">3f", raw, 0x00)
+    pos_i_x, pos_i_y, pos_i_z = struct.unpack_from(">3h", raw, 0x0C)
+    rot_x, rot_y, rot_z = struct.unpack_from("3b", raw, 0x12)
+    scale_x, scale_y, scale_z = struct.unpack_from("3b", raw, 0x15)
+    vel_x, vel_y, vel_z = struct.unpack_from("3b", raw, 0x18)
+    bck_name_ptr, bck_hash = struct.unpack_from(">2I", raw, 0x1C)
+    use_bck_hash, use_pos_float = struct.unpack_from("2?", raw, 0x24)
+    bck_frame, weight_0, weight_1, weight_2, weight_3, bck_rate = struct.unpack_from(">h5b", raw, 0x26)
 
+    dest.position_f.x = pos_f_x
+    dest.position_f.y = pos_f_y
+    dest.position_f.z = pos_f_z
+    dest.position.x = pos_i_x
+    dest.position.y = pos_i_y
+    dest.position.z = pos_i_z
+    dest.rotation.x = rot_x
+    dest.rotation.y = rot_y
+    dest.rotation.z = rot_z
+    dest.scale.x = scale_x
+    dest.scale.y = scale_y
+    dest.scale.z = scale_z
+    dest.velocity.x = vel_x
+    dest.velocity.y = vel_y
+    dest.velocity.z = vel_z
 
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_rotation(gst_recorder_info_ptr: int, dest: Vec3f = None) -> Vec3f:
-    """
-    Reads the rotation of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
+    dest.action_name = dolphin_read_cstring(bck_name_ptr, encoding="shift_jisx0213")
+    dest.action_hash = bck_hash
 
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :param dest: the destination vector.
-    :return: the destination vector.
-    """
-    return dolphin_read_vec(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_ROTATION, dest)
+    dest.use_action_hash = use_bck_hash
+    dest.use_position_float = use_pos_float
 
-
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_scale(gst_recorder_info_ptr: int, dest: Vec3f = None) -> Vec3f:
-    """
-    Reads the scale of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
-
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :param dest: the destination vector.
-    :return: the destination vector.
-    """
-    return dolphin_read_vec(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_SCALE, dest)
-
-
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_velocity(gst_recorder_info_ptr: int, dest: Vec3f = None) -> Vec3f:
-    """
-    Reads the velocity of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
-
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :param dest: the destination vector.
-    :return: the destination vector.
-    """
-    return dolphin_read_vec(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_VELOCITY, dest)
-
-
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_action_name(gst_recorder_info_ptr: int) -> str:
-    """
-    Reads the animation name of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
-
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :return: the value read.
-    """
-    action_name_ptr = dolphin_read_u32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_ACTION_NAME_PTR)
-    return dolphin_read_cstring(action_name_ptr)
-
-
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_action_hash(gst_recorder_info_ptr: int) -> int:
-    """
-    Reads the animation hash of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
-
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :return: the value read.
-    """
-    return dolphin_read_u32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_ACTION_HASH)
-
-
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_bck_frame(gst_recorder_info_ptr: int) -> float:
-    """
-    Reads the BCK frame of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
-
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :return: the value read.
-    """
-    return dolphin_read_f32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_BCK_FRAME)
-
-
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_bck_rate(gst_recorder_info_ptr: int) -> float:
-    """
-    Reads the BCK rate of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
-
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :return: the value read.
-    """
-    return dolphin_read_f32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_BCK_RATE)
-
-
-@validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_struct_track_weights(gst_recorder_info_ptr: int) -> tuple[float, float, float, float]:
-    """
-    Reads the track weights of the GhostData associated with the GstRecorderInfo in Dolphin's emulated game memory and
-    returns it.
-
-    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
-    :return: the tuple of four track weights read.
-    """
-    weight_0 = dolphin_read_f32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_TRACK_WEIGHTS + 0)
-    weight_1 = dolphin_read_f32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_TRACK_WEIGHTS + 4)
-    weight_2 = dolphin_read_f32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_TRACK_WEIGHTS + 8)
-    weight_3 = dolphin_read_f32(gst_recorder_info_ptr + OFFSET_GST_DATA_STRUCT_TRACK_WEIGHTS + 12)
-    return weight_0, weight_1, weight_2, weight_3
+    dest.bck_frame = bck_frame
+    dest.track_weights[0] = weight_0
+    dest.track_weights[1] = weight_1
+    dest.track_weights[2] = weight_2
+    dest.track_weights[3] = weight_3
+    dest.bck_rate = bck_rate
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -363,98 +250,47 @@ PACKET_FLAG_ACTION_HASH = 0x2000
 PACKET_FLAG_POSITION_FLOAT = 0x4000
 
 
-def get_shift_ratio(shift: int) -> float:
-    if shift > 0:
-        return (256 << shift) * 0.00390625
-    else:
-        return (256 >> -shift) * 0.00390625
-
-
-def clamp(min: float, max: float, value: float) -> float:
-    if value < min:
-        return min
-    elif value > max:
-        return max
-    return value
-
-
 class RawGhostData:
     def __init__(self, ghost_data_type: int):
         self.ghost_data_type = ghost_data_type
 
-        self.position = Vec3i()
-        self.position_f = Vec3f()
-        self.rotation = Vec3i()
-        self.scale = Vec3i()
-        self.velocity = Vec3i()
+        self.position = Vec3()
+        self.position_f = Vec3()
+        self.rotation = Vec3()
+        self.scale = Vec3()
+        self.velocity = Vec3()
         self.action_name = ""
         self.action_hash = 0
+        self.use_action_hash = False
+        self.use_position_float = False
         self.bck_frame = 0
         self.track_weights = [0, 0, 0, 0]
         self.bck_rate = 0
 
         self.packet_flags = -1
 
-    def set_position(self, position: Vec3f):
-        ratio = get_shift_ratio(-2)
-        self.position.x = int(position.x * ratio)
-        self.position.y = int(position.y * ratio)
-        self.position.z = int(position.z * ratio)
-        self.position_f.set(position)
-
-    def set_rotation(self, rotation: Vec3f):
-        ratio = get_shift_ratio(7)
-        self.rotation.x = int(clamp(-180.0, 180.0, rotation.x) * ratio)
-        self.rotation.y = int(clamp(-180.0, 180.0, rotation.y) * ratio)
-        self.rotation.z = int(clamp(-180.0, 180.0, rotation.z) * ratio)
-
-    def set_scale(self, scale: Vec3f):
-        ratio = get_shift_ratio(3)
-        self.scale.x = int(scale.x * ratio)
-        self.scale.y = int(scale.y * ratio)
-        self.scale.z = int(scale.z * ratio)
-
-    def set_velocity(self, velocity: Vec3f):
-        ratio = get_shift_ratio(0)
-        self.velocity.x = int(velocity.x * ratio)
-        self.velocity.y = int(velocity.y * ratio)
-        self.velocity.z = int(velocity.z * ratio)
-
-    def set_action_name(self, action_name: str):
-        self.action_name = action_name
-
-    def set_action_hash(self, action_hash: int):
-        self.action_hash = action_hash
-
-    def set_bck_frame(self, bck_frame: float):
-        ratio = get_shift_ratio(2)
-        self.bck_frame = int(bck_frame * ratio)
-
-    def set_bck_rate(self, bck_rate: float):
-        ratio = get_shift_ratio(3)
-        self.bck_rate = int(bck_rate * ratio)
-
-    def set_track_weights(self, track_weights: tuple[float, float, float, float]):
-        ratio = get_shift_ratio(7)
-
-        for i, track_weight in enumerate(track_weights):
-            if track_weight == 1.0:
-                self.track_weights[i] = -128
-            else:
-                self.track_weights[i] = int(track_weight * ratio)
-
     def compare_and_update(self, other: RawGhostData):
-        self.packet_flags = 0
+        # No object seems to use velocity, so it won't be updated here
 
-        # No object seems to use velocity or position_f, so these won't be updated here
+        if self.packet_flags == -1:
+            self.packet_flags = PACKET_FLAG_TRACK_WEIGHT_0\
+                                | PACKET_FLAG_TRACK_WEIGHT_1\
+                                | PACKET_FLAG_TRACK_WEIGHT_2\
+                                | PACKET_FLAG_TRACK_WEIGHT_3
+        else:
+            self.packet_flags = 0
 
-        if self.position != other.position:
-            self.packet_flags |= PACKET_FLAG_POSITION_INT
-            self.position.set(other.position)
+        self.use_position_float = other.use_position_float
+        self.use_action_hash = other.use_action_hash
 
-        if self.scale != other.scale:
-            self.packet_flags |= PACKET_FLAG_SCALE
-            self.scale.set(other.scale)
+        if self.use_position_float:
+            if self.position_f != other.position_f:
+                self.packet_flags |= PACKET_FLAG_POSITION_FLOAT
+                self.position_f.set(other.position_f)
+        else:
+            if self.position != other.position:
+                self.packet_flags |= PACKET_FLAG_POSITION_INT
+                self.position.set(other.position)
 
         if self.rotation.x != other.rotation.x:
             self.packet_flags |= PACKET_FLAG_ROTATION_X
@@ -468,21 +304,22 @@ class RawGhostData:
             self.packet_flags |= PACKET_FLAG_ROTATION_Z
             self.rotation.z = other.rotation.z
 
-        if self.action_name != other.action_name and self.ghost_data_type in [GHOST_TYPE_PICHAN_RACER]:
-            self.packet_flags |= PACKET_FLAG_ACTION_NAME
-            self.action_name = other.action_name
+        if self.scale != other.scale:
+            self.packet_flags |= PACKET_FLAG_SCALE
+            self.scale.set(other.scale)
 
-        if self.action_hash != other.action_hash and self.ghost_data_type in [GHOST_TYPE_GHOST_ATTACK_GHOST]:
-            self.packet_flags |= PACKET_FLAG_ACTION_HASH
-            self.action_hash = other.action_hash
+        if self.use_action_hash:
+            if self.action_hash != other.action_hash:
+                self.packet_flags |= PACKET_FLAG_ACTION_HASH
+                self.action_hash = other.action_hash
+        else:
+            if self.action_name != other.action_name:
+                self.packet_flags |= PACKET_FLAG_ACTION_NAME
+                self.action_name = other.action_name
 
         if self.bck_frame != other.bck_frame:
             self.packet_flags |= PACKET_FLAG_BCK_FRAME
             self.bck_frame = other.bck_frame
-
-        if self.bck_rate != other.bck_rate:
-            self.packet_flags |= PACKET_FLAG_BCK_RATE
-            self.bck_rate = other.bck_rate
 
         if self.track_weights[0] != other.track_weights[0]:
             self.packet_flags |= PACKET_FLAG_TRACK_WEIGHT_0
@@ -499,6 +336,10 @@ class RawGhostData:
         if self.track_weights[3] != other.track_weights[3]:
             self.packet_flags |= PACKET_FLAG_TRACK_WEIGHT_3
             self.track_weights[3] = other.track_weights[3]
+
+        if self.bck_rate != other.bck_rate:
+            self.packet_flags |= PACKET_FLAG_BCK_RATE
+            self.bck_rate = other.bck_rate
 
     def pack(self) -> tuple[bytes, int]:
         out = BytesIO()
@@ -532,7 +373,7 @@ class RawGhostData:
             out.write(struct.pack(">I", self.action_hash))
 
         if packet_flags & PACKET_FLAG_BCK_FRAME:
-            out.write(struct.pack("b", self.bck_frame))
+            out.write(struct.pack("h", self.bck_frame))
 
         if packet_flags & PACKET_FLAG_BCK_RATE:
             out.write(struct.pack("b", self.bck_rate))
@@ -556,7 +397,107 @@ class RawGhostData:
 # Main functionality
 
 def record_gst_from_dolphin(output_folder_path: str, addr_gst_recorder_info_ptr: int = ADDR_GST_RECORDER_INFO_PTR):
-    pass
+    gst_recorder_info_ptr = 0
+    recorder_state = RECORDER_MODE_WAITING
+    game_id = UNINITIALIZED_GAME_ID
+
+    if os.path.exists(output_folder_path) and not os.path.isdir(output_folder_path):
+        print(f"Error! Path '{output_folder_path}' is not a folder!", file=sys.stderr)
+
+    # 2 - Hook to Dolphin and check if game ID is supported
+    print("Waiting for Dolphin...")
+
+    while not dolphin_memory_engine.is_hooked():
+        sleep_millis(500)
+        dolphin_memory_engine.hook()
+
+    while game_id == UNINITIALIZED_GAME_ID:
+        sleep_millis(500)
+        game_id = dolphin_get_game_id()
+
+    print(f"Hooked to Dolphin, game ID is {game_id}!")
+
+    if game_id not in VALID_GAME_IDS:
+        print("WARNING! Detected game's ID does not appear to be SMG2, tool may fail!")
+
+    # 3 - Find GstRecorderInfo and wait for recording
+    print(f"Searching for GstRecorderInfo* at 0x{addr_gst_recorder_info_ptr:08X}...")
+
+    while gst_recorder_info_ptr == 0:
+        sleep_millis(250)
+        gst_recorder_info_ptr = dolphin_read_u32(addr_gst_recorder_info_ptr)
+
+    print("Waiting for GstRecordHelper...")
+
+    while recorder_state == RECORDER_MODE_WAITING:
+        sleep_millis(50)
+        recorder_state = dolphin_read_recorder_mode(gst_recorder_info_ptr)
+
+    if recorder_state == RECORDER_MODE_STOPPED:
+        print("Aborted recording! Start again!")
+        dolphin_memory_engine.un_hook()
+        return
+
+    while recorder_state == RECORDER_MODE_PREPARING:
+        recorder_state = dolphin_read_recorder_mode(gst_recorder_info_ptr)
+
+    # 5 - Get general information and prepare output
+    stage_name = dolphin_read_stage_name(gst_recorder_info_ptr)
+    data_index = dolphin_read_ghost_data_index(gst_recorder_info_ptr)
+    data_type = dolphin_read_ghost_data_type(gst_recorder_info_ptr)
+    total_frames = 0
+
+    print(f"Started recording for {GHOST_TYPE_NAMES[data_type]} in {stage_name} Star {data_index}!")
+
+    gst_folder_path = os.path.join(output_folder_path, stage_name)
+    gst_file_name = GHOST_FILE_FORMATS[data_type].format(stage_name, data_index)
+    gst_file_path = os.path.join(gst_folder_path, gst_file_name)
+    os.makedirs(gst_folder_path, exist_ok=True)
+
+    with open(gst_file_path, "wb") as f:
+        writing_packet = RawGhostData(data_type)
+        reading_packet = RawGhostData(data_type)
+
+        current_frame = dolphin_read_update_frame(gst_recorder_info_ptr)
+        next_frame = (current_frame + 1) & 0xFFFFFFFF
+
+        while recorder_state == RECORDER_MODE_RECORDING:
+            # Get current update frame
+            current_frame = dolphin_read_update_frame(gst_recorder_info_ptr)
+
+            if current_frame == ((next_frame - 1) & 0xFFFFFFFF):
+                continue
+            elif current_frame != next_frame:
+                print("Aborted recording due to a synchronization error!")
+                dolphin_memory_engine.un_hook()
+                return
+
+            next_frame = (current_frame + 1) & 0xFFFFFFFF
+
+            # Still recording?
+            recorder_state = dolphin_read_recorder_mode(gst_recorder_info_ptr)
+
+            if recorder_state != RECORDER_MODE_RECORDING:
+                break
+
+            # Read packet info from memory
+            dolphin_read_ghost_data_struct(gst_recorder_info_ptr, reading_packet)
+            writing_packet.compare_and_update(reading_packet)
+
+            packet_bytes, packet_flags = writing_packet.pack()
+            packet_index = total_frames & 0xFF
+            packet_size = len(packet_bytes) + 4
+
+            f.write(struct.pack(">2BH", packet_index, packet_size, packet_flags))
+            f.write(packet_bytes)
+
+            total_frames += 1
+
+        print("Stopped recording!")
+
+    dolphin_memory_engine.un_hook()
+
+    print(f"Dumped {total_frames} ghost frames (approx. {total_frames // 60} seconds) to '{gst_file_path}'.")
 
 
 def sleep_millis(millis: int):
