@@ -21,7 +21,8 @@ def validate_ptr(name: str):
 
 
 UNINITIALIZED_GAME_ID = "\0\0\0\0"
-VALID_GAME_IDS = ["SB4P", "SB4E", "SB4J", "SB4K", "SB4W"]
+VALID_GAME_IDS = ["RMGP", "RMGE", "RMGJ", "RMGK", "RMGW",
+                  "SB4P", "SB4E", "SB4J", "SB4K", "SB4W"]
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -33,56 +34,35 @@ RECORDER_MODE_PREPARING = 1
 RECORDER_MODE_RECORDING = 2
 RECORDER_MODE_STOPPED = 3
 
+GHOST_TYPE_INVALID = -1
 GHOST_TYPE_GHOST_ATTACK_GHOST = 0
 GHOST_TYPE_PICHAN_RACER = 1
-GHOST_TYPE_GHOST_PLAYER_MARIO = 2  # Reserved
-GHOST_TYPE_GHOST_PLAYER_LUIGI = 3  # Reserved
+GHOST_TYPE_GHOST_PLAYER_MARIO = 2
+GHOST_TYPE_GHOST_PLAYER_LUIGI = 3
 
 GHOST_FILE_FORMATS = [
     "GhostAttackGhostData{1:02d}.gst",
     "PichanRacerRaceData{1:03d}.gst",
     "{0}.gst",
-    "{0}Luigi.gst"
+    "{0}Luigi.gst",
 ]
 
 GHOST_TYPE_NAMES = [
     "GhostAttackGhost",
     "PichanRacer",
     "GhostPlayer (Mario)",
-    "GhostPlayer (Luigi)"
+    "GhostPlayer (Luigi)",
 ]
 
 ADDR_GST_RECORDER_INFO_PTR = 0x80003FF8
 OFFSET_UPDATE_FRAME = 0x00
 OFFSET_RECORDER_MODE = 0x04
 OFFSET_STAGE_NAME_PTR = 0x08
-OFFSET_GST_DATA_INDEX = 0x0C
-OFFSET_GST_DATA_TYPE = 0x10
-OFFSET_GST_DATA_STRUCT = 0x14
+OFFSET_STAGE_SCENARIO = 0x0C
+OFFSET_IS_SMG2 = 0x10
+OFFSET_GST_DATA_TYPE = 0x14
+OFFSET_GST_DATA_STRUCT = 0x18
 GST_DATA_STRUCT_SIZE = 0x2E
-
-
-class Vec3:
-    """Represents a simple 3D vector."""
-    def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0):
-        self.x = x
-        self.y = y
-        self.z = z
-
-    def set(self, other: Vec3):
-        self.x = other.x
-        self.y = other.y
-        self.z = other.z
-
-    def __eq__(self, other):
-        if type(other) != Vec3:
-            return False
-        return self.x == other.x and self.y == other.y and self.z == other.z
-
-    def __ne__(self, other):
-        if type(other) != Vec3:
-            return True
-        return self.x != other.x or self.y != other.y or self.z != other.z
 
 
 def dolphin_get_game_id() -> str:
@@ -92,6 +72,17 @@ def dolphin_get_game_id() -> str:
     :return: the game's ID name.
     """
     return dolphin_memory_engine.read_bytes(0, 4).decode("ascii")
+
+
+@validate_ptr("s32*")
+def dolphin_read_s32(ptr: int) -> int:
+    """
+    Reads a signed 32-bit integer at the specified address in Dolphin's emulated game memory and returns it.
+
+    :param ptr: the pointer to the signed 32-bit integer.
+    :return: the value read.
+    """
+    return dolphin_memory_engine.read_word(ptr)
 
 
 @validate_ptr("u32*")
@@ -114,6 +105,17 @@ def dolphin_read_f32(ptr: int) -> int:
     :return: the value read.
     """
     return dolphin_memory_engine.read_float(ptr)
+
+
+@validate_ptr("bool*")
+def dolphin_read_bool(ptr: int) -> bool:
+    """
+    Reads a boolean value at the specified address in Dolphin's emulated game memory and returns it.
+
+    :param ptr: the pointer to the boolean value.
+    :return: the value read.
+    """
+    return dolphin_memory_engine.read_byte(ptr) != 0
 
 
 @validate_ptr("char*")
@@ -153,7 +155,7 @@ def dolphin_read_recorder_mode(gst_recorder_info_ptr: int) -> int:
     :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
     :return: the value read.
     """
-    return dolphin_read_u32(gst_recorder_info_ptr + OFFSET_RECORDER_MODE)
+    return dolphin_read_s32(gst_recorder_info_ptr + OFFSET_RECORDER_MODE)
 
 
 @validate_ptr("GstRecorderInfo*")
@@ -168,23 +170,37 @@ def dolphin_read_stage_name(gst_recorder_info_ptr: int) -> str | None:
 
 
 @validate_ptr("GstRecorderInfo*")
-def dolphin_read_ghost_data_index(gst_recorder_info_ptr: int) -> int:
+def dolphin_read_stage_scenario(gst_recorder_info_ptr: int) -> int:
     """
-    Reads the GhostData index associated with the GstRecorderInfo in Dolphin's emulated game memory and returns it.
+    Reads the currently selected scenario associated with the GstRecorderInfo in Dolphin's emulated game memory and
+    returns it.
+
     :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
     :return: the value read.
     """
-    return dolphin_read_u32(gst_recorder_info_ptr + OFFSET_GST_DATA_INDEX)
+    return dolphin_read_s32(gst_recorder_info_ptr + OFFSET_STAGE_SCENARIO)
+
+
+@validate_ptr("GstRecorderInfo*")
+def dolphin_read_is_smg2(gst_recorder_info_ptr: int) -> bool:
+    """
+    Returns ``True`` if the GstRecordInfo in Dolphin's emulated game memory is for SMG2, otherwise ``False``.
+
+    :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
+    :return: True if the game is SMG2, otherwise False.
+    """
+    return dolphin_read_bool(gst_recorder_info_ptr + OFFSET_IS_SMG2)
 
 
 @validate_ptr("GstRecorderInfo*")
 def dolphin_read_ghost_data_type(gst_recorder_info_ptr: int) -> int:
     """
     Reads the GhostData type associated with the GstRecorderInfo in Dolphin's emulated game memory and returns it.
+
     :param gst_recorder_info_ptr: the pointer to GstRecorderInfo.
     :return: the value read.
     """
-    return dolphin_read_u32(gst_recorder_info_ptr + OFFSET_GST_DATA_TYPE)
+    return dolphin_read_s32(gst_recorder_info_ptr + OFFSET_GST_DATA_TYPE)
 
 
 @validate_ptr("GstRecorderInfo*")
@@ -203,9 +219,9 @@ def dolphin_read_ghost_data_struct(gst_recorder_info_ptr: int, dest: RawGhostDat
     dest.position_f.x = pos_f_x
     dest.position_f.y = pos_f_y
     dest.position_f.z = pos_f_z
-    dest.position.x = pos_i_x
-    dest.position.y = pos_i_y
-    dest.position.z = pos_i_z
+    dest.position_i.x = pos_i_x
+    dest.position_i.y = pos_i_y
+    dest.position_i.z = pos_i_z
     dest.rotation.x = rot_x
     dest.rotation.y = rot_y
     dest.rotation.z = rot_z
@@ -250,11 +266,35 @@ PACKET_FLAG_ACTION_HASH = 0x2000
 PACKET_FLAG_POSITION_FLOAT = 0x4000
 
 
-class RawGhostData:
-    def __init__(self, ghost_data_type: int):
-        self.ghost_data_type = ghost_data_type
+class Vec3:
+    """Represents a simple 3D vector."""
+    def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0):
+        self.x = x
+        self.y = y
+        self.z = z
 
-        self.position = Vec3()
+    def set(self, other: Vec3):
+        self.x = other.x
+        self.y = other.y
+        self.z = other.z
+
+    def __eq__(self, other):
+        if type(other) != Vec3:
+            return False
+        return self.x == other.x and self.y == other.y and self.z == other.z
+
+    def __ne__(self, other):
+        if type(other) != Vec3:
+            return True
+        return self.x != other.x or self.y != other.y or self.z != other.z
+
+
+class RawGhostData:
+    def __init__(self, ghost_data_type: int, is_smg2: bool):
+        self.ghost_data_type = ghost_data_type
+        self.is_smg2 = is_smg2
+
+        self.position_i = Vec3()
         self.position_f = Vec3()
         self.rotation = Vec3()
         self.scale = Vec3()
@@ -267,89 +307,83 @@ class RawGhostData:
         self.track_weights = [0, 0, 0, 0]
         self.bck_rate = 0
 
-        self.packet_flags = -1
+        self._packet_flags_ = 0
 
     def compare_and_update(self, other: RawGhostData):
         # No object seems to use velocity, so it won't be updated here
 
-        if self.packet_flags == -1:
-            self.packet_flags = PACKET_FLAG_TRACK_WEIGHT_0\
-                                | PACKET_FLAG_TRACK_WEIGHT_1\
-                                | PACKET_FLAG_TRACK_WEIGHT_2\
-                                | PACKET_FLAG_TRACK_WEIGHT_3
-        else:
-            self.packet_flags = 0
+        self._packet_flags_ = 0
 
         self.use_position_float = other.use_position_float
         self.use_action_hash = other.use_action_hash
 
-        if self.use_position_float:
+        if self.is_smg2 and self.use_position_float:
             if self.position_f != other.position_f:
-                self.packet_flags |= PACKET_FLAG_POSITION_FLOAT
+                self._packet_flags_ |= PACKET_FLAG_POSITION_FLOAT
                 self.position_f.set(other.position_f)
         else:
-            if self.position != other.position:
-                self.packet_flags |= PACKET_FLAG_POSITION_INT
-                self.position.set(other.position)
+            if self.position_i != other.position_i:
+                self._packet_flags_ |= PACKET_FLAG_POSITION_INT
+                self.position_i.set(other.position_i)
 
         if self.rotation.x != other.rotation.x:
-            self.packet_flags |= PACKET_FLAG_ROTATION_X
+            self._packet_flags_ |= PACKET_FLAG_ROTATION_X
             self.rotation.x = other.rotation.x
 
         if self.rotation.y != other.rotation.y:
-            self.packet_flags |= PACKET_FLAG_ROTATION_Y
+            self._packet_flags_ |= PACKET_FLAG_ROTATION_Y
             self.rotation.y = other.rotation.y
 
         if self.rotation.z != other.rotation.z:
-            self.packet_flags |= PACKET_FLAG_ROTATION_Z
+            self._packet_flags_ |= PACKET_FLAG_ROTATION_Z
             self.rotation.z = other.rotation.z
 
         if self.scale != other.scale:
-            self.packet_flags |= PACKET_FLAG_SCALE
+            self._packet_flags_ |= PACKET_FLAG_SCALE
             self.scale.set(other.scale)
 
         if self.use_action_hash:
             if self.action_hash != other.action_hash:
-                self.packet_flags |= PACKET_FLAG_ACTION_HASH
+                self._packet_flags_ |= PACKET_FLAG_ACTION_HASH
                 self.action_hash = other.action_hash
         else:
             if self.action_name != other.action_name:
-                self.packet_flags |= PACKET_FLAG_ACTION_NAME
+                self._packet_flags_ |= PACKET_FLAG_ACTION_NAME
                 self.action_name = other.action_name
 
         if self.bck_frame != other.bck_frame:
-            self.packet_flags |= PACKET_FLAG_BCK_FRAME
+            self._packet_flags_ |= PACKET_FLAG_BCK_FRAME
             self.bck_frame = other.bck_frame
 
         if self.track_weights[0] != other.track_weights[0]:
-            self.packet_flags |= PACKET_FLAG_TRACK_WEIGHT_0
+            self._packet_flags_ |= PACKET_FLAG_TRACK_WEIGHT_0
             self.track_weights[0] = other.track_weights[0]
 
         if self.track_weights[1] != other.track_weights[1]:
-            self.packet_flags |= PACKET_FLAG_TRACK_WEIGHT_1
+            self._packet_flags_ |= PACKET_FLAG_TRACK_WEIGHT_1
             self.track_weights[1] = other.track_weights[1]
 
         if self.track_weights[2] != other.track_weights[2]:
-            self.packet_flags |= PACKET_FLAG_TRACK_WEIGHT_2
+            self._packet_flags_ |= PACKET_FLAG_TRACK_WEIGHT_2
             self.track_weights[2] = other.track_weights[2]
 
         if self.track_weights[3] != other.track_weights[3]:
-            self.packet_flags |= PACKET_FLAG_TRACK_WEIGHT_3
+            self._packet_flags_ |= PACKET_FLAG_TRACK_WEIGHT_3
             self.track_weights[3] = other.track_weights[3]
 
         if self.bck_rate != other.bck_rate:
-            self.packet_flags |= PACKET_FLAG_BCK_RATE
+            self._packet_flags_ |= PACKET_FLAG_BCK_RATE
             self.bck_rate = other.bck_rate
 
     def pack(self) -> tuple[bytes, int]:
         out = BytesIO()
 
-        packet_flags = self.packet_flags
+        packet_flags = self._packet_flags_
 
         if packet_flags & PACKET_FLAG_POSITION_FLOAT:
             out.write(struct.pack(">3f", self.position_f.x, self.position_f.y, self.position_f.z))
         elif packet_flags & PACKET_FLAG_POSITION_INT:
-            out.write(struct.pack(">3h", self.position.x, self.position.y, self.position.z))
+            out.write(struct.pack(">3h", self.position_i.x, self.position_i.y, self.position_i.z))
 
         if packet_flags & PACKET_FLAG_VELOCITY:
             out.write(struct.pack("3b", self.velocity.x, self.velocity.y, self.velocity.z))
@@ -373,9 +407,9 @@ class RawGhostData:
             out.write(struct.pack(">I", self.action_hash))
 
         if packet_flags & PACKET_FLAG_BCK_FRAME:
-            out.write(struct.pack("h", self.bck_frame))
+            out.write(struct.pack(">h", self.bck_frame))
 
-        if packet_flags & PACKET_FLAG_BCK_RATE:
+        if self.is_smg2 and packet_flags & PACKET_FLAG_BCK_RATE:
             out.write(struct.pack("b", self.bck_rate))
 
         if packet_flags & PACKET_FLAG_TRACK_WEIGHT_0:
@@ -389,6 +423,9 @@ class RawGhostData:
 
         if packet_flags & PACKET_FLAG_TRACK_WEIGHT_3:
             out.write(struct.pack("b", self.track_weights[3]))
+
+        if not self.is_smg2 and packet_flags & PACKET_FLAG_BCK_RATE:
+            out.write(struct.pack("b", self.bck_rate))
 
         return out.getbuffer().tobytes(), packet_flags
 
@@ -418,7 +455,7 @@ def record_gst_from_dolphin(output_folder_path: str, addr_gst_recorder_info_ptr:
     print(f"Hooked to Dolphin, game ID is {game_id}!")
 
     if game_id not in VALID_GAME_IDS:
-        print("WARNING! Detected game's ID does not appear to be SMG2, tool may fail!")
+        print("WARNING! Detected game's ID does not appear to be SMG1/SMG2, tool may fail!")
 
     # 3 - Find GstRecorderInfo and wait for recording
     print(f"Searching for GstRecorderInfo* at 0x{addr_gst_recorder_info_ptr:08X}...")
@@ -443,20 +480,26 @@ def record_gst_from_dolphin(output_folder_path: str, addr_gst_recorder_info_ptr:
 
     # 5 - Get general information and prepare output
     stage_name = dolphin_read_stage_name(gst_recorder_info_ptr)
-    data_index = dolphin_read_ghost_data_index(gst_recorder_info_ptr)
+    stage_scenario = dolphin_read_stage_scenario(gst_recorder_info_ptr)
+    is_smg2 = dolphin_read_is_smg2(gst_recorder_info_ptr)
     data_type = dolphin_read_ghost_data_type(gst_recorder_info_ptr)
     total_frames = 0
 
-    print(f"Started recording for {GHOST_TYPE_NAMES[data_type]} in {stage_name} Star {data_index}!")
+    if data_type == GHOST_TYPE_INVALID:
+        print("Invalid ghost type!")
+        dolphin_memory_engine.un_hook()
+        return
+
+    print(f"Started recording for {GHOST_TYPE_NAMES[data_type]} in {stage_name} Star {stage_scenario}!")
 
     gst_folder_path = os.path.join(output_folder_path, stage_name)
-    gst_file_name = GHOST_FILE_FORMATS[data_type].format(stage_name, data_index)
+    gst_file_name = GHOST_FILE_FORMATS[data_type].format(stage_name, stage_scenario)
     gst_file_path = os.path.join(gst_folder_path, gst_file_name)
     os.makedirs(gst_folder_path, exist_ok=True)
 
     with open(gst_file_path, "wb") as f:
-        writing_packet = RawGhostData(data_type)
-        reading_packet = RawGhostData(data_type)
+        writing_packet = RawGhostData(data_type, is_smg2)
+        reading_packet = RawGhostData(data_type, is_smg2)
 
         current_frame = dolphin_read_update_frame(gst_recorder_info_ptr)
         next_frame = (current_frame + 1) & 0xFFFFFFFF
