@@ -9,7 +9,7 @@ setuptools.setup(
     version=__version__,
     author=__author__,
     url="https://github.com/SunakazeKun/galaxygst",
-    description="Python tool to record GST object playback for Super Mario Galaxy 2",
+    description="Python tool to record GST object motion for Super Mario Galaxy 2",
     long_description=README,
     long_description_content_type="text/markdown",
     keywords=["nintendo", "super-mario-galaxy-2", "gst", "dolphin", "modding"],

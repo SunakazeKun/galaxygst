@@ -24,7 +24,7 @@ def handle_dolphin(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Record GST object playback in SMG2 from Dolphin memory.")
+    parser = argparse.ArgumentParser(description="Record GST object motion in SMG2 from Dolphin memory.")
 
     parser.add_argument("-address", nargs="?", default=f"0x{gst.ADDR_GST_RECORDER_INFO_PTR:08X}", help="address from which the tool retrieves GstRecordInfo*")
     parser.add_argument("output_folder_path", help="folder to save GST files to")
