@@ -8,6 +8,9 @@ It is available on PyPI, meaning that you can easily install it with pip:
 pip install galaxygst
 ```
 
+# Limitations
+For Ghost Luigis, you should only record proper GST files for normal Power Stars. The game won't recognize GST files associated with Green Stars!
+
 # Usage
 In this section, it is assumed that the game you want to record object motion in already uses Syati's *GstRecord* code. The general usage is this:
 ```
@@ -26,7 +29,13 @@ options:
 The ``-address`` option is not required, as the tool assumes ``GstRecordInfo*`` is supplied at ``0x80003FF8`` by default.
 
 # Recording
-**TODO**
+Before you can record GST files, you need to prepare a recorder object in your galaxy first. For example, ``GhostLuigiRecordHelper`` can be used to record GST files for Ghost Luigi. Once you have configured the helper object, you are ready to use the tool:
+
+1. Launch the modded game in Dolphin and start this command-line tool like explained in previous sections.
+2. While the game is running, pay attention to the tool's console output to verify that everything is running correctly.
+3. Once you are in the desired galaxy, go to where you placed the recorder object. An A button icon will be displayed on the screen when you are close to it.
+4. Once you press A, the recorder object will start. The player's controls will be disabled for one second before the recording starts.
+5. If you desire to stop recording, press 2 on the first player's Wiimote.
 
 The tool keeps you informed about its current state, and it should inform you when something goes wrong. Here's an example from one of my tests:
 ```
