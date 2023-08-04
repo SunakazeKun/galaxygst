@@ -14,6 +14,12 @@ def handle_dolphin(args):
     print("Welcome to galaxygst! To find out how to set up the GST recorder in a galaxy, please refer to the GitHub\n"
           "repository's README file! If you want to cancel the tool's execution, press CTRL+C any time. To stop\n"
           "recording, press 2 on the first player's Wiimote!\n"
+          "\n"
+          "NOTE: If the recording process terminates due to a synchronization error, you should try the following\n"
+          "things before recording again:\n"
+          "- Close unnecessary programs and processes.\n"
+          "- Give the galaxygst process a higher priority.\n"
+          "- Reduce the emulation's execution speed (less than 100%).\n"
           "------------------------------------------------------------------------------")
     try:
         gst.record_gst_from_dolphin(args.output_folder_path, addr_gst_recorder_info_ptr)

@@ -49,3 +49,11 @@ Dumped 619 ghost frames (approx. 10 seconds) to '.\RedBlueExGalaxy\GhostAttackGh
 ```
 
 After recording, you can build a Ghost.arc containing the GST file. However, this is beyond the scope of this tool. In final releases of your levels, you don't want players to interact with GstRecordHelper objects, so make sure to remove them once they are not needed anymore.
+
+## Synchronization Error
+If the recording process terminates due to a synchronization error, you should try the following things before recording again:
+- Close unnecessary programs and processes.
+- Give the galaxygst process a higher priority.
+- Reduce the emulation's execution speed (less than 100%).
+
+If the error persists, try cutting down the emulator's execution speed even further.
